@@ -2,6 +2,7 @@
 /*
  * SAML Authentication plugin for LimeSurvey
  * Copyright (C) 2013 Sixto Pablo Martin Garcia <sixto.martin.garcia@gmail.com>
+ * Copyright (C) 2016 Alexander Brychcy <alexander@brychcy.net>
  * License: GNU/GPL License v2 http://www.gnu.org/licenses/gpl-2.0.html
  * URL: https://github.com/pitbulk/limesurvey-saml
  * A plugin of LimeSurvey, a free software. This version may have been modified pursuant
@@ -10,40 +11,51 @@
  * other free or open source software licenses.
  */
 
-class AuthSAML extends AuthPluginBase
+class StuRaSAML extends AuthPluginBase
 {
     protected $storage = 'DbStorage';
 
     protected $ssp = null;
     
-    static protected $description = 'SAML authentication plugin';
-    static protected $name = 'SAML';
+    static protected $description = 'StuRa simpleSAML authentication plugin';
+    static protected $name = 'StuRa sGIS SAML';
     
     protected $settings = array(
         'simplesamlphp_path' => array(
             'type' => 'string',
             'label' => 'Path to the SimpleSAMLphp folder',
-            'default' => '/var/www/simplesamlphp',
+            'default' => '/var/www/tu-ilmenau.de/helfer.stura/simplesamlphp',
         ),
         'saml_authsource' => array(
             'type' => 'string',
             'label' => 'SAML authentication source',
-            'default' => 'limesurvey',
+            'default' => 'wayfinder',
         ),
         'saml_uid_mapping' => array(
             'type' => 'string',
-            'label' => 'SAML attributed used as username',
-            'default' => 'uid',
+            'label' => 'SAML attribute used as username',
+            'default' => 'eduPersonPrincipalName',
         ),
         'saml_mail_mapping' => array(
             'type' => 'string',
-            'label' => 'SAML attributed used as email',
+            'label' => 'SAML attribute used as email',
             'default' => 'mail',
         ),
         'saml_name_mapping' => array(
             'type' => 'string',
-            'label' => 'SAML attributed used as name',
-            'default' => 'cn',
+            'label' => 'SAML attribute used as name',
+            'default' => 'displayName',
+        ),
+		'saml_groups_mapping' => array(
+            'type' => 'string',
+            'label' => 'SAML attribute used as groups',
+            'default' => 'groups',
+        ),
+		'saml_permission_mapping'=>array(
+            'type'=>'json',
+            'label'=>'SAML group attribute to perimission mapping',
+            'editorOptions'=>array('mode'=>'tree'),
+            'default'=>'{"default":{"create_labelsets":false,"create_participant_panel":false,"create_settings_plugins":false,"create_surveys":false}}',
         ),
         'authtype_base' => array(
             'type' => 'string',
@@ -60,45 +72,25 @@ class AuthSAML extends AuthPluginBase
             'label' => 'Auto create users',
             'default' => true,
         ),
-		'auto_create_labelsets' => array(
-            'type' => 'checkbox',
-            'label' => '- Permissions: Label Sets',
-            'default' => false,
-        ),
-		'auto_create_participant_panel' => array(
-            'type' => 'checkbox',
-            'label' => '- Permissions: Participant panel',
-            'default' => false,
-        ),
-		'auto_create_settings_plugins' => array(
-            'type' => 'checkbox',
-            'label' => '- Permissions: Settings & Plugins',
-            'default' => false,
-        ),
-		'auto_create_surveys' => array(
-            'type' => 'checkbox',
-            'label' => '- Permissions: Surveys',
-            'default' => true,
-        ),
-		'auto_create_templates' => array(
-            'type' => 'checkbox',
-            'label' => '- Permissions: Templates',
-            'default' => false,
-        ),
-		'auto_create_user_groups' => array(
-            'type' => 'checkbox',
-            'label' => '- Permissions: User groups',
-            'default' => false,
-        ), 
         'auto_update_users' => array(
             'type' => 'checkbox',
             'label' => 'Auto update users',
             'default' => true,
         ),
+		'auto_create_groups' => array(
+            'type' => 'checkbox',
+            'label' => 'Auto create groups',
+            'default' => true,
+        ),
+		'auto_update_groups' => array(
+            'type' => 'checkbox',
+            'label' => 'Auto update groups',
+            'default' => true,
+        ),
         'force_saml_login' => array(
             'type' => 'checkbox',
-            'label' => 'Force SAML login.', 
-        ),
+            'label' => 'Force SAML login.',
+        )
     );
     
     protected function get_saml_instance() {
@@ -114,7 +106,7 @@ class AuthSAML extends AuthPluginBase
 
             require_once($simplesamlphp_path.'/lib/_autoload.php');
 
-            $saml_authsource = $this->get('saml_authsource', null, null, 'limesurvey');
+            $saml_authsource = $this->get('saml_authsource', null, null, 'wayfinder');
             $this->ssp = new SimpleSAML_Auth_Simple($saml_authsource);
 
             // To avoid __autoload conflicts, restote the limesurvey autoloads
@@ -156,7 +148,7 @@ class AuthSAML extends AuthPluginBase
     public function afterLogout()
     {
         $ssp = $this->get_saml_instance();
-        $ssp->logout();
+        $ssp->logout(array('ReturnTo' => Yii::app()->getConfig('homeurl')));
     }
 
     public function newLoginForm()
@@ -164,7 +156,7 @@ class AuthSAML extends AuthPluginBase
         $authtype_base = $this->get('authtype_base', null, null, 'Authdb');
 
         $ssp = $this->get_saml_instance();
-        $this->getEvent()->getContent($authtype_base)->addContent('<li><center>Click on that button to initiate SAML Login<br><a href="'.$ssp->getLoginURL().'" title="SAML Login"><img src="'.Yii::app()->getConfig('imageurl').'/saml_logo.gif"></a></center><br></li>', 'prepend');
+        $this->getEvent()->getContent($authtype_base)->addContent('<li><center>Click on that button to initiate SAML Login<br><a href="'.$ssp->getLoginURL().'" title="SAML Login"><img src="'.Yii::app()->getConfig('publicurl').'plugins/StuRaSAML/saml_logo.gif"></a></center><br></li>', 'prepend');
     }
 
     public function getUserName()
@@ -214,6 +206,36 @@ class AuthSAML extends AuthPluginBase
         }
         return $mail;
     }
+	
+	public function getUserGroups()
+    {
+        $groups = '';
+
+        $ssp = $this->get_saml_instance();
+        $attributes = $this->ssp->getAttributes();
+        if (!empty($attributes)) {
+            $saml_groups_mapping = $this->get('saml_groups_mapping', null, null, 'groups');
+            if (array_key_exists($saml_groups_mapping , $attributes) && !empty($attributes[$saml_groups_mapping])) {
+                $groups = $attributes[$saml_groups_mapping];
+            }
+        }
+        return $groups;
+    }
+	
+	public function getLSUserGroups($uid)
+	{
+		$lsgroups = '';
+		
+		// Get current Group membership in LimeSurvey
+		$qGroup = Yii::app()->db->createCommand();
+		$qGroup->select(array('groups.name', 'groups.ugid'));
+		$qGroup->from("{{user_in_groups}} AS useringroups");
+		$qGroup->where('useringroups.uid='.$uid);
+		$qGroup->join("{{user_groups}} AS groups", 'groups.ugid=useringroups.ugid');
+		$lsgroups = $qGroup->queryAll();
+		
+		return $lsgroups;
+	}
 
     public function newUserSession()
     {
@@ -228,6 +250,7 @@ class AuthSAML extends AuthPluginBase
 
             $name = $this->getUserCommonName();
             $mail = $this->getUserMail();
+			$groups = $this->getUserGroups();
 
             $oUser = $this->api->getUserByName($sUser);
             if (is_null($oUser))
@@ -240,52 +263,33 @@ class AuthSAML extends AuthPluginBase
 
                     if ($iNewUID)
                     {
+						// Create Groups ?
+						$auto_create_groups = $this->get('auto_create_groups', null, null, true);
+						if ($auto_create_groups && !empty($groups)) {
+							foreach($groups as $iGroup) {
+								// FIXME: Ignore sGIS group names longer than 20 chars
+								//        Also check similar code in group update part below
+								if (strlen($iGroup) > 20) {
+									continue;
+								}
+								
+								// Check if group already exists
+								$iGroupExists = UserGroup::model()->findByAttributes(array('name' => $iGroup));
+								if (!$iGroupExists) {
+									// Add new group
+									$ugid = UserGroup::model()->addGroup($iGroup, 'autogenerated survey group for sGIS group '.$iGroup);
+									// Add new user to new group
+									UserInGroup::model()->insertRecords(array('ugid' => $ugid, 'uid' => $iNewUID));
+								}
+								else {
+									// Add new user to existing group
+									UserInGroup::model()->insertRecords(array('ugid' => $iGroupExists["ugid"], 'uid' => $iNewUID));
+								}
+							}
+						}
+						
                         Permission::model()->insertSomeRecords(array('uid' => $iNewUID, 'permission' => Yii::app()->getConfig("defaulttemplate"),   'entity'=>'template', 'read_p' => 1));
-                        
-						// Set permissions: Label Sets 
-                        $auto_create_labelsets = $this->get('auto_create_labelsets', null, null, true);
-                        if ($auto_create_labelsets) {
 
-                 		Permission::model()->insertSomeRecords(array('uid' => $iNewUID, 'permission' => 'labelsets',   'entity'=>'global', 'create_p' => 1, 'read_p' => 1, 'update_p' => 1, 'delete_p' => 1, 'import_p' => 1, 'export_p' => 1));
- 						}
-						
-						// Set permissions: Particiapnt Panel 
-                        $auto_create_participant_panel = $this->get('auto_create_participant_panel', null, null, true);
-                        if ($auto_create_participant_panel) {
-
-                 		Permission::model()->insertSomeRecords(array('uid' => $iNewUID, 'permission' => 'participantpanel',   'entity'=>'global', 'create_p' => 1, 'read_p' => 1, 'update_p' => 1, 'delete_p' => 1, 'export_p' => 1));
- 						}
-						
-						// Set permissions: Settings & Plugins 
-                        $auto_create_settings_plugins = $this->get('auto_create_settings_plugins', null, null, true);
-                        if ($auto_create_settings_plugins) {
-
-                 		Permission::model()->insertSomeRecords(array('uid' => $iNewUID, 'permission' => 'settings',   'entity'=>'global', 'create_p' => 0, 'read_p' => 1, 'update_p' => 1, 'delete_p' => 0, 'import_p' => 1, 'export_p' => 0));
- 						}
-						
-						// Set permissions: surveys 
-                        $auto_create_surveys = $this->get('auto_create_surveys', null, null, true);
-                        if ($auto_create_surveys) {
-
-                 		Permission::model()->insertSomeRecords(array('uid' => $iNewUID, 'permission' => 'surveys',   'entity'=>'global', 'create_p' => 1, 'read_p' => 1, 'update_p' => 1, 'delete_p' => 1, 'export_p' => 1));
- 						}
-						
-						// Set permissions: Templates 
-                        $auto_create_templates = $this->get('auto_create_templates', null, null, true);
-                        if ($auto_create_templates) {
-
-                 		Permission::model()->insertSomeRecords(array('uid' => $iNewUID, 'permission' => 'templates',   'entity'=>'global', 'create_p' => 1, 'read_p' => 1, 'update_p' => 1, 'delete_p' => 1, 'import_p' => 1, 'export_p' => 1));
- 						}
-					
-						// Set permissions: User Groups 
-                        $auto_create_user_groups = $this->get('auto_create_user_groups', null, null, true);
-                        if ($auto_create_user_groups) {
-
-                 		Permission::model()->insertSomeRecords(array('uid' => $iNewUID, 'permission' => 'usergroups',   'entity'=>'global', 'create_p' => 1, 'read_p' => 1, 'update_p' => 1, 'delete_p' => 1, 'export_p' => 0));
- 						}
-						
-						
-						
                         // read again user from newly created entry
                         $oUser = $this->api->getUserByName($sUser);
 
@@ -308,11 +312,69 @@ class AuthSAML extends AuthPluginBase
                     );
 
                     User::model()->updateByPk($oUser->uid, $changes);
-		   
-
- $oUser = $this->api->getUserByName($sUser);
+                    $oUser = $this->api->getUserByName($sUser);
                 }
 
+				// Update groups?
+                $auto_update_groups = $this->get('auto_update_groups', null, null, true);
+                if ($auto_update_groups) {
+					
+/* 					// Get current Group membership in LimeSurvey
+					$qGroup = Yii::app()->db->createCommand();
+					$qGroup->select(array('groups.name', 'groups.ugid'));
+					$qGroup->from("{{user_in_groups}} AS useringroups");
+					$qGroup->where('useringroups.uid='.$oUser->uid);
+					$qGroup->join("{{user_groups}} AS groups", 'groups.ugid=useringroups.ugid');
+					$user_in_current_groups = $qGroup->queryAll(); */
+
+					$user_in_current_groups = $this->getLSUserGroups($oUser->uid);
+					
+					// Reorder Queryarray
+					$cGroups = array();
+					$cGroupIds = array();
+					foreach($user_in_current_groups as $i) {
+						array_push($cGroups,$i["name"]);
+						array_push($cGroupIds,$i["ugid"]);
+					}
+
+					// Groups that the user should be removed
+					$groups_diff_del = array_diff($cGroups,$groups);
+					if (!empty($groups_diff_del)) {
+						foreach($groups_diff_del as $dGroup) {
+							$dGroupId = (int) array_search($dGroup,$groups_diff_del);
+							$dGroupId = $cGroupIds["$dGroupId"];
+							$dUserId = (int) $oUser->uid;
+							UserInGroup::model()->deleteByPk(array('ugid' => $dGroupId, 'uid' => $dUserId));
+						}
+					}
+					
+					// Groups to add					
+					$groups_diff_add = array_diff($groups,$cGroups);
+ 					if (!empty($groups_diff_add)) {
+						foreach($groups_diff_add as $iGroup) {
+							// FIXME: Ignore sGIS group names longer than 20 chars
+							//        Also check similar code in user creation part above
+							if (strlen($iGroup) > 20) {
+								continue;
+							}
+							
+							// Check if group already exists
+							$iGroupExists = UserGroup::model()->findByAttributes(array('name' => $iGroup));
+							$auto_create_groups = $this->get('auto_create_groups', null, null, true);
+							if (!$iGroupExists && $auto_create_groups) {
+								// Add new group
+								$ugid = UserGroup::model()->addGroup($iGroup, 'autogenerated survey group for sGIS group '.$iGroup);
+								// Add user to new group
+								UserInGroup::model()->insertRecords(array('ugid' => $ugid, 'uid' => $oUser->uid));
+							}
+							else {
+								// Add user to existing group
+								UserInGroup::model()->insertRecords(array('ugid' => $iGroupExists["ugid"], 'uid' => $oUser->uid));
+							}
+						} 
+					}
+					$oUser = $this->api->getUserByName($sUser);
+                }
                 $this->setAuthSuccess($oUser);
             }
         }
